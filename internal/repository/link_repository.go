@@ -15,6 +15,8 @@ type LinkRepository interface {
 	DeleteLink(linkID uint) error
 	// GetLinkByShortCode récupère un lien de la base de données en utilisant son shortCode.
 	GetLinkByShortCode(shortCode string) (*models.Link, error)
+	// GetLinkByLongURL récupère un lien de la base de données en utilisant son URL longue.
+	GetLinkByLongURL(longURL string) (*models.Link, error)
 	// GetAllLinks récupère tous les liens de la base de données.
 	GetAllLinks() ([]models.Link, error)
 	// CountClicksByLinkID compte le nombre total de clics pour un ID de lien donné.
@@ -60,6 +62,17 @@ func (r *GormLinkRepository) GetLinkByShortCode(shortCode string) (*models.Link,
 	// Done 2: Utiliser GORM pour trouver un lien par son ShortCode.
 	// La méthode First de GORM recherche le premier enregistrement correspondant et le mappe à 'link'.
 	result := r.db.Where("shortcode = ?", shortCode).First(&link)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &link, nil
+}
+
+// GetLinkByLongURL récupère un lien de la base de données en utilisant son URL longue.
+// Il renvoie gorm.ErrRecordNotFound si aucun lien n'est trouvé avec cette URL.
+func (r *GormLinkRepository) GetLinkByLongURL(longURL string) (*models.Link, error) {
+	var link models.Link
+	result := r.db.Where("long_url = ?", longURL).First(&link)
 	if result.Error != nil {
 		return nil, result.Error
 	}
