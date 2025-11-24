@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/axellelanca/urlshortener/internal/apperr"
 	"github.com/axellelanca/urlshortener/internal/models"
 	"github.com/axellelanca/urlshortener/internal/services"
 	"github.com/gin-gonic/gin"
@@ -57,16 +58,24 @@ func CreateShortLinkHandler(linkService *services.LinkService) gin.HandlerFunc {
 		// DONE : Tente de lier le JSON de la requête à la structure CreateLinkRequest.
 		// Gin gère la validation 'binding'.
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+			apperr.HandleError(c, apperr.ErrInvalidRequest("Vérifiez le format de la requête et que tous les champs requis sont présents", err))
 			return
 		}
 
 		// DONE: Appeler le LinkService (CreateLink) pour créer le nouveau lien.
 		link, err := linkService.CreateLink(req.LongURL)
 		if err != nil {
-			log.Printf("Error creating link: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create short link, existed url"})
-			c.Writer.Write([]byte("\n"))
+			// Vérifier si c'est une erreur de lien existant
+			if errors.Is(err, services.ErrURLAlreadyExists) {
+				apperr.HandleError(c, apperr.ErrLinkAlreadyExists(req.LongURL))
+				return
+			}
+			// Vérifier si c'est une erreur de collision de code court
+			if errors.Is(err, services.ErrShortCodeCollision) {
+				apperr.HandleError(c, apperr.ErrInternalServer("Impossible de générer un code court unique", err))
+				return
+			}
+			apperr.HandleError(c, apperr.ErrFailedToCreateLink(err))
 			return
 		}
 
@@ -93,12 +102,11 @@ func RedirectHandler(linkService *services.LinkService, clickService *services.C
 			// Si le lien n'est pas trouvé, retourner HTTP 404 Not Found.
 			// Utiliser errors.Is et l'erreur Gorm
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Short link not found"})
+				apperr.HandleError(c, apperr.ErrLinkNotFound(shortCode))
 				return
 			}
 			// Gérer d'autres erreurs potentielles de la base de données ou du service
-			log.Printf("Error retrieving link for %s: %v", shortCode, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			apperr.HandleError(c, apperr.ErrDatabaseOperation("récupération du lien", err))
 			return
 		}
 
@@ -155,11 +163,10 @@ func GetLinkInfoHandler(linkService *services.LinkService) gin.HandlerFunc {
 		link, err := linkService.GetLinkByShortCode(shortCode)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Short link not found"})
+				apperr.HandleError(c, apperr.ErrLinkNotFound(shortCode))
 				return
 			}
-			log.Printf("Error retrieving link info for %s: %v", shortCode, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			apperr.HandleError(c, apperr.ErrDatabaseOperation("récupération des informations du lien", err))
 			return
 		}
 
@@ -182,12 +189,11 @@ func GetLinkStatsHandler(linkService *services.LinkService) gin.HandlerFunc {
 		if err != nil {
 			// Gérer le cas où le lien n'est pas trouvé.
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Short link not found"})
+				apperr.HandleError(c, apperr.ErrLinkNotFound(shortCode))
 				return
 			}
 			// Gérer d'autres erreurs
-			log.Printf("Error retrieving stats for %s: %v", shortCode, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			apperr.HandleError(c, apperr.ErrDatabaseOperation("récupération des statistiques", err))
 			return
 		}
 
