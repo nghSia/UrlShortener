@@ -11,11 +11,15 @@ import (
 
 	cmd2 "github.com/axellelanca/urlshortener/cmd"
 	"github.com/axellelanca/urlshortener/internal/api"
+	"github.com/axellelanca/urlshortener/internal/models"
 	"github.com/axellelanca/urlshortener/internal/repository"
 	"github.com/axellelanca/urlshortener/internal/services"
+	"github.com/axellelanca/urlshortener/internal/workers"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
-	"gorm.io/driver/sqlite" // Driver SQLite pour GORM
+
+	// "github.com/glebarez/sqlite" WINDOWS
+	"gorm.io/driver/sqlite" // MAC
 	"gorm.io/gorm"
 )
 
@@ -54,9 +58,20 @@ puis lance le serveur HTTP.`,
 		// Laissez le log
 		log.Println("Services métiers initialisés.")
 
-		// PHASE 3 : Pas de workers/monitor pour l'instant
-		// TODO Phase 4: Initialiser le channel ClickEventsChannel et lancer les workers
-		// TODO Phase 4: Initialiser et lancer le moniteur d'URLs
+		// DONE : Initialiser le channel ClickEventsChanel et lancer les workers
+		// DONE : Initialiser et lancer le moniteur d'URLs
+		workerCount := cfg.Analytics.WorkerCount
+		channelBuffer := cfg.Analytics.BufferSize
+
+		// Channel bufferisé pour les ClickEvent (producteur = handlers, consommateurs = workers)
+		clickEvents := make(chan models.ClickEvent, channelBuffer)
+
+		// Démarrer les workers qui consommeront depuis clickEvents
+		workers.StartClickWorkers(workerCount, clickEvents, clickRepo)
+		log.Printf("Started %d click workers (buffer=%d)", workerCount, channelBuffer)
+
+		// Injecter le channel global dans le package API (var ClickEventsChan)
+		api.ClickEventsChan = clickEvents
 
 		// DONE : Configurer le routeur Gin et les handlers API.
 		router := gin.Default()
