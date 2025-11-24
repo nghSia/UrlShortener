@@ -4,12 +4,16 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/axellelanca/urlshortener/internal/models"
 	"github.com/axellelanca/urlshortener/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm" // Pour gérer gorm.ErrRecordNotFound
 )
+
+// ClickEventsChan est le channel global utilisé pour envoyer les événements
+var ClickEventsChan chan<- models.ClickEvent
 
 // TODO Créer une variable ClickEventsChannel qui est un chan de type ClickEvent
 // ClickEventsChannel est le channel global (ou injecté) utilisé pour envoyer les événements de clic
@@ -78,7 +82,6 @@ func CreateShortLinkHandler(linkService *services.LinkService) gin.HandlerFunc {
 }
 
 // RedirectHandler gère la redirection d'une URL courte vers l'URL longue.
-// PHASE 3 : Enregistrement synchrone des clics (sans async)
 func RedirectHandler(linkService *services.LinkService, clickService *services.ClickService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// DONE Récupère le shortCode de l'URL avec c.Param
@@ -99,8 +102,7 @@ func RedirectHandler(linkService *services.LinkService, clickService *services.C
 			return
 		}
 
-		// PHASE 3 : Enregistrement SYNCHRONE du clic (bloquant)
-		// Récupérer les métadonnées du clic
+		// Créer un ClickEvent avec les informations pertinentes.
 		userAgent := c.Request.UserAgent()
 		ipAddress := c.ClientIP()
 
@@ -111,11 +113,27 @@ func RedirectHandler(linkService *services.LinkService, clickService *services.C
 			IPAddress: ipAddress,
 		}
 
-		// Enregistrer le clic de manière synchrone
-		if err := clickService.RecordClick(click); err != nil {
-			// Log l'erreur mais ne bloque pas la redirection
-			log.Printf("Error recording click for link %d: %v", link.ID, err)
-		} // TODO Phase 4: Créer un ClickEvent et l'envoyer dans le channel (async)
+		// DONE : Créer un ClickEvent et l'envoyer dans le channel (async)
+		evt := models.ClickEvent{
+			LinkID:    link.ID,
+			Timestamp: time.Now(),
+			UserAgent: userAgent,
+			IPAddress: ipAddress,
+		}
+
+		if ClickEventsChan != nil {
+			select {
+			case ClickEventsChan <- evt:
+				// envoyé de façon asynchrone
+			default:
+				log.Printf("WARN: click event dropped for link %d", link.ID)
+			}
+		} else {
+			// Fallback synchrone si le channel n'est pas configuré
+			if err := clickService.RecordClick(click); err != nil {
+				log.Printf("Error recording click for link %d: %v", link.ID, err)
+			}
+		}
 
 		// Retourner l'URL en JSON au lieu de rediriger
 		c.JSON(http.StatusOK, gin.H{
@@ -123,6 +141,9 @@ func RedirectHandler(linkService *services.LinkService, clickService *services.C
 			"long_url":   link.LongURL,
 		})
 		c.Writer.Write([]byte("\n"))
+
+		// REDIRECTION HTTP 302 :
+		// c.Redirect(http.StatusFound, link.LongURL)
 	}
 }
 
