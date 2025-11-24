@@ -55,6 +55,17 @@ func (s *LinkService) GenerateShortCode(length int) (string, error) {
 // CreateLink crée un nouveau lien raccourci.
 // Il génère un code court unique, puis persiste le lien dans la base de données.
 func (s *LinkService) CreateLink(longURL string) (*models.Link, error) {
+	// Vérifier si l'URL longue existe déjà
+	existingLink, err := s.linkRepo.GetLinkByLongURL(longURL)
+	if err == nil && existingLink != nil {
+		// URL déjà existante, retourner une erreur
+		return nil, errors.New("URL existante")
+	}
+	// Si erreur différente de "not found", la retourner
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("database error checking URL existence: %w", err)
+	}
+
 	// Done 1: Implémenter la logique de retry pour générer un code court unique.
 	// Essayez de générer un code, vérifiez s'il existe déjà en base, et retentez si une collision est trouvée.
 	// Limitez le nombre de tentatives pour éviter une boucle infinie.
@@ -103,8 +114,7 @@ func (s *LinkService) CreateLink(longURL string) (*models.Link, error) {
 	}
 
 	// Done Persiste le nouveau lien dans la base de données via le repository (CreateLink)
-	err := s.linkRepo.CreateLink(link)
-	if err != nil {
+	if err := s.linkRepo.CreateLink(link); err != nil {
 		return nil, fmt.Errorf("failed to create link in database: %w", err)
 	}
 
