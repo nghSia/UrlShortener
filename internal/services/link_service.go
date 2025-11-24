@@ -59,7 +59,7 @@ func (s *LinkService) CreateLink(longURL string) (*models.Link, error) {
 	existingLink, err := s.linkRepo.GetLinkByLongURL(longURL)
 	if err == nil && existingLink != nil {
 		// URL déjà existante, retourner une erreur
-		return nil, errors.New("URL existante")
+		return nil, ErrURLAlreadyExists
 	}
 	// Si erreur différente de "not found", la retourner
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -103,7 +103,7 @@ func (s *LinkService) CreateLink(longURL string) (*models.Link, error) {
 
 	// Done : Si après toutes les tentatives, aucun code unique n'a été trouvé... Errors.New
 	if shortCode == "" {
-		return nil, errors.New("failed to generate unique short code after maximum retries")
+		return nil, ErrShortCodeCollision
 	}
 
 	// Done Crée une nouvelle instance du modèle Link.
